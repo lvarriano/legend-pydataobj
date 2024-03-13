@@ -24,7 +24,7 @@ from .vectorofvectors import VectorOfVectors
 
 log = logging.getLogger(__name__)
 
-class StructuredArray(LGDO):
+class StructuredTable(LGDO):
     """A special struct of arrays.
 
     https://numpy.org/doc/stable/user/basics.rec.html
@@ -45,7 +45,7 @@ class StructuredArray(LGDO):
         Parameters
         ----------
         obj_dict
-            Instantiate the StructuredArray using the supplied named array-like LGDO's.
+            Instantiate the StructuredTable using the supplied named array-like LGDO's.
             An error will be raised if all arrays do not have the same first dimension.
         attrs
             A set of user attributes to be carried along with this LGDO.
@@ -60,7 +60,7 @@ class StructuredArray(LGDO):
         """
         
         # check that inputs 1) exist and are of correct type and 2) have same first dimension (# rows).
-        # get the rest of the information needed to construct the StructuredArray.
+        # get the rest of the information needed to construct the StructuredTable.
         if obj_dict is not None and len(obj_dict) > 0:
             numcols = 0 
             numrows = 0
@@ -85,7 +85,7 @@ class StructuredArray(LGDO):
                     )
                     if isinstance(obj, np.array):
                         msg = msg + (
-                            f" Instantiate using StructuredArray.from_nda() to provide an np.array."
+                            f" Instantiate using StructuredTable.from_nda() to provide an np.array."
                         )
                     raise TypeError(msg)
 
@@ -148,7 +148,7 @@ class StructuredArray(LGDO):
         attrs: dict[str, Any] | None = None,
         ):
         """
-        Creates a StructuredArray from an array or tuple of arrays and associated column names.
+        Creates a StructuredTable from an array or tuple of arrays and associated column names.
         """
 
         if not isinstance(nda, np.ndarray):
@@ -172,7 +172,7 @@ class StructuredArray(LGDO):
 
     # good
     def datatype_name(self) -> str:
-        return "StructuredArray"
+        return "StructuredTable"
 
     # good?
     def __len__(self) -> int:
