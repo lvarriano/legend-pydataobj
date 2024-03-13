@@ -21,10 +21,11 @@ from .lgdo import LGDO
 from .scalar import Scalar
 from .struct import Struct
 from .vectorofvectors import VectorOfVectors
+from .table import Table
 
 log = logging.getLogger(__name__)
 
-class StructuredTable(LGDO):
+class StructuredTable(Table):
     """A special struct of arrays.
 
     https://numpy.org/doc/stable/user/basics.rec.html
@@ -49,29 +50,16 @@ class StructuredTable(LGDO):
             An error will be raised if all arrays do not have the same first dimension.
         attrs
             A set of user attributes to be carried along with this LGDO.
-        # dtype
-        #     Specifies the dtype for the internal array. If any passed arrays do not match this dtype, an error is 
-        #     raised.
-        # promote
-        #     If ``True``, will promote dtypes of arrays to the lowest type required to accomodate all arrays.
-        #     If ``False``, will raise an error if dtypes of all arrays are not identical. (default: ``True``)
-        #     If ``dtype`` is passed, this flag is ignored.
-
         """
         
         # check that inputs 1) exist and are of correct type and 2) have same first dimension (# rows).
         # get the rest of the information needed to construct the StructuredTable.
         if obj_dict is not None and len(obj_dict) > 0:
-            numcols = 0 
             numrows = 0
-            col_dict = []
-            # col_start = []
-            # col_shapes = []
-            col_dtypes = []
             nda_dtype = []
             metadata = {}
-            for key in obj_dict.keys():
-                if key in col_dict:
+            for key, i in enumerate(obj_dict.keys()):
+                if key in list(zip(*nda_dtype))[0]:
                     msg = (
                         f"More than one array named {key} is not allowed."
                     )
@@ -85,13 +73,13 @@ class StructuredTable(LGDO):
                     )
                     if isinstance(obj, np.array):
                         msg = msg + (
-                            f" Instantiate using StructuredTable.from_nda() to provide an np.array."
+                            f" Instantiate using StructuredTable.from_nda() to provide a np.ndarray."
                         )
                     raise TypeError(msg)
 
                 shape = obj.nda.shape
 
-                if numcols == 0:
+                if i == 0:
                     numrows = shape[0]
                 elif shape[0] != numrows:
                     msg = (
@@ -99,46 +87,26 @@ class StructuredTable(LGDO):
                         same first dimension."
                     )
                     raise ValueError(msg)
-                
-                numcols += 1
-
-                # if dtype is not None and obj.nda.dtype != dtype:
-                #     msg = (
-                #         f"Array dtype {obj.nda.dtype} does not match specified dtype {dtype}."
-                #     )
-                #     raise ValueError(msg)                 
-                
-                # don't know if maybe Julia needs these
-                # numcols += np.prod(shape[1:])   # to support N-dim arrays eventually
-                # col_start.append(numcols - 1)
-                # col_shapes.append(shape[1:])    # to support N-dim arrays eventually
-
-                col_dict.append(key)
-                col_dtypes.append(obj.nda.dtype)
+            
                 metadata |= {key: obj.attrs}
 
                 # for numpy structured array
                 nda_dtype.append((key, obj.nda.dtype, shape[1:]))
         
         # now we know all inputs have same first dimension and we have collected the required number of colums and rows
-        # next step is to create an np.array to hold the data.
+        # next step is to create a structured np.ndarray to hold the data.
         nda_dtype = np.dtype(nda_dtype)
-        
         self.nda = np.empty(numrows, dtype=nda_dtype)
         
-        # create the structured array
+        # fill the structured array
         for key in obj_dict.keys():
             self.nda[key] = obj_dict[key].nda
 
-        # some information
+        # keep the metadata
         self.attrs["dtype"] = str(self.nda.dtype).encode()
-        # self.attrs["names"] = self.nda.dtype.names
-        # self.attrs["metadata"] = metadata
+        self.attrs["names"] = self.nda.dtype.names
+        self.attrs["metadata"] = metadata
         
-        super().__init__(attrs=attrs)
-
-        # always start at loc=0
-        self.loc = 0
 
     @classmethod()
     def from_nda(
