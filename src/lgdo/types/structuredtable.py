@@ -1,6 +1,5 @@
 """
-Implements a LEGEND Data Object representing a special struct that contains arrays of equal-sized arrays of fixed-type,
-metadata, and corresponding utilities.
+Implements a LEGEND Data Object representing a special type of structured array.
 """
 from __future__ import annotations
 
@@ -14,6 +13,7 @@ import numexpr as ne
 import numpy as np
 import pandas as pd
 from pandas.io.formats import format as fmt
+import json
 
 from .array import Array
 from .arrayofequalsizedarrays import ArrayOfEqualSizedArrays
@@ -26,7 +26,15 @@ from .table import Table
 log = logging.getLogger(__name__)
 
 class StructuredTable(Table):
-    """A special struct of arrays.
+    """A special type based on numpy's structured arrays. Structured arrays are ndarrays whose datatype is a 
+    composition of simpler datatypes organized as a sequence of named fields. However, note that the 
+    :class:`.StructuredTable` is written to disk as a 2-D np.ndarray of fixed type. Fields will have their dtype 
+    promoted to the smallest required dtype. 
+    
+    For this reason, it is discouraged to use a :class:`.StructuredTable` to
+    hold a large amount of disparate data, such as one field that is a large array of `int8` and one field that is a 
+    `float64`. In this example, when the :class:`.StructuredTable` is written to disk, all data will be promoted to 
+    `float64`, which can take up a large amount of storage.
 
     https://numpy.org/doc/stable/user/basics.rec.html
 
@@ -37,8 +45,8 @@ class StructuredTable(Table):
 
     def __init__(
         self,
-        obj_dict: dict[str, LGDO] | None = None,
-        attrs: dict[str, Any] | None = None,
+        obj_dict: dict[str, LGDO] | None,
+        # attrs: dict[str, Any] | None = None,
         # dtype: np.dtype = None,
         # promote: bool = True,
     ) -> None:
@@ -51,10 +59,15 @@ class StructuredTable(Table):
         attrs
             A set of user attributes to be carried along with this LGDO.
         """
+
+        self.attrs = {}
+
+        if obj_dict is None:
+            self.nda = None
         
         # check that inputs 1) exist and are of correct type and 2) have same first dimension (# rows).
         # get the rest of the information needed to construct the StructuredTable.
-        if obj_dict is not None and len(obj_dict) > 0:
+        elif len(obj_dict) > 0:
             numrows = 0
             nda_dtype = []
             metadata = {}
@@ -69,7 +82,8 @@ class StructuredTable(Table):
                 # more support could be added for other objects
                 if not (isinstance(obj, Array) or isinstance(obj, ArrayOfEqualSizedArrays)):
                     msg = (
-                        f"Got type {type(obj)} but only Array and ArrayOfEqualSizedArrays are supported."
+                        f"Got type {type(obj)} but only :class:`.Array` and :class:`.ArrayOfEqualSizedArrays` 
+                        are supported."
                     )
                     if isinstance(obj, np.array):
                         msg = msg + (
@@ -91,47 +105,51 @@ class StructuredTable(Table):
                 metadata |= {key: obj.attrs}
 
                 # for numpy structured array
+                # this is a list of tuples
                 nda_dtype.append((key, obj.nda.dtype, shape[1:]))
         
-        # now we know all inputs have same first dimension and we have collected the required number of colums and rows
-        # next step is to create a structured np.ndarray to hold the data.
-        nda_dtype = np.dtype(nda_dtype)
-        self.nda = np.empty(numrows, dtype=nda_dtype)
-        
-        # fill the structured array
-        for key in obj_dict.keys():
-            self.nda[key] = obj_dict[key].nda
-
-        # keep the metadata
-        self.attrs["dtype"] = str(self.nda.dtype).encode()
-        self.attrs["names"] = self.nda.dtype.names
-        self.attrs["metadata"] = metadata
-        
-
-    @classmethod()
-    def from_nda(
-        cls,
-        nda: tuple[np.ndarray,...] | np.ndarray = None,
-        col_dict: tuple[str, ...] | None = None,
-        attrs: dict[str, Any] | None = None,
-        ):
-        """
-        Creates a StructuredTable from an array or tuple of arrays and associated column names.
-        """
-
-        if not isinstance(nda, np.ndarray):
-            # then is tuple
+            # now we know all inputs have same first dimension and we have collected the required number of rows
+            # next step is to create a structured np.ndarray to hold the data.
+            nda_dtype = np.dtype(nda_dtype)
+            self.nda = np.empty(numrows, dtype=nda_dtype)
             
-            numcols = 0 
-            numrows = 0
-            col_dict = []
-            # col_start = []
-            # col_shapes = []
-            col_dtypes = []
-            nda_dtype = []
-            metadata = {}
-            for x in nda:
+            # fill the structured array
+            for key in obj_dict.keys():
+                self.nda[key] = obj_dict[key].nda
 
+            # keep some info, but note that it has to be written to file as a string
+            # so do str(...).encode()
+                
+            # but the metadata is a dict of dicts, so maybe this needs to be converted to a JSON string?
+            
+            # https://stackoverflow.com/questions/988228/convert-a-string-representation-of-a-dictionary-to-a-dictionary
+            # s = "{'muffin' : 'lolz', 'foo' : 'kitty'}"
+            # json_acceptable_string = s.replace("'", "\"")
+            # d = json.loads(json_acceptable_string)
+                
+            self.attrs["nda_dtype"] = self.nda.dtype
+            # self.attrs["fields"] = self.nda.dtype.names
+            self.attrs["metadata"] |= metadata
+
+    def add_nda(
+        cls,
+        nda: np.ndarray,
+        nda_dtype: tuple[tuple[str,str,tuple[int,...]],...],
+        metadata: dict[str,Any] | None,
+        ):
+        r"""
+        Creates a StructuredTable from an array and some additional information. Intended to be used when loading a
+        :class:`.StructuredTable` from disk.
+        """
+        
+        if nda.dtype.names is not None:
+            msg = (
+                f"passed array looks like a structured array - you should pass in just a normal array"
+            )
+            raise TypeError(msg)  
+        
+        # I'm going to let numpy handle checking that the passed data and nda_dtype match appropriately...
+        self.nda = np.lib.recfunctions.unstructured_to_structured(arr=nda, dtype=nda_dtype, casting='safe')
 
 
 
