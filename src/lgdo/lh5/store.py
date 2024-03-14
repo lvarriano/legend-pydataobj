@@ -10,6 +10,8 @@ import sys
 from bisect import bisect_left
 from collections import defaultdict
 from typing import Any, Union
+from ast import literal_eval as make_tuple
+import json
 
 import h5py
 import numba as nb
@@ -30,6 +32,7 @@ from ..types import (
     WaveformTable,
 )
 from .utils import expand_path, parse_datatype
+
 
 LGDO = Union[Array, Scalar, Struct, VectorOfVectors]
 
@@ -381,6 +384,8 @@ class LH5Store:
             # loop over fields and read
             obj_dict = {}
             for field in elements:
+                if h5f[field].attrs["datatype"] == "StructuredArray":
+                    raise NotImplementedError("StructuredArray is not supported inside a Struct yet!")
                 if not field_mask[field]:
                     continue
                 # TODO: it's strange to pass start_row, n_rows, idx to struct
@@ -432,7 +437,89 @@ class LH5Store:
             # read out each of the fields
             rows_read = []
             for field in elements:
-                if not field_mask[field]:
+                if h5f[field].attrs["datatype"]  == "StructuredArray":
+                    # Get nda_dtype and get names
+                    nda_dtype = np.dtype(make_tuple(h5f[field].attrs["nda_dtype"]))
+                    nda_names = list(nda_dtype.names)
+                    if any(i in nda_names for i in elements):
+                        raise ValueError("The fields in the StructuredArray cannot have the same name as a field already in the parent table. How did you write this?")
+                    fields_to_read = list(set(nda_names).intersection(set(field_mask)))
+                    # Start to think about reading in the StructuredArray
+                    # compute the number of rows to read
+                    # we culled idx above for start_row and n_rows, now we have to apply
+                    # the constraint of the length of the dataset
+                    ds_n_rows = h5f[name].shape[0]
+                    if idx is not None:
+                        if len(idx[0]) > 0 and idx[0][-1] >= ds_n_rows:
+                            log.warning(
+                                "idx indexed past the end of the array in the file. Culling..."
+                            )
+                            n_rows_to_read = bisect_left(idx[0], ds_n_rows)
+                            idx = (idx[0][:n_rows_to_read],)
+                            if len(idx[0]) == 0:
+                                log.warning("idx empty after culling.")
+                        n_rows_to_read = len(idx[0])
+                    else:
+                        n_rows_to_read = ds_n_rows - start_row
+                    if n_rows_to_read > n_rows:
+                        n_rows_to_read = n_rows
+
+                    # if idx is passed, check if we can make it a slice instead (faster)
+                    change_idx_to_slice = False
+
+                    # prepare the selection for the read. Use idx if available
+                    if idx is not None:
+                        # check if idx is empty and convert to slice instead
+                        if len(idx[0]) == 0:
+                            source_sel = np.s_[0:0]
+                            change_idx_to_slice = True
+                        # check if idx is contiguous and increasing
+                        # if so, convert it to a slice instead (faster)
+                        elif np.all(np.diff(idx[0]) == 1):
+                            source_sel = np.s_[idx[0][0] : idx[0][-1] + 1]
+                            change_idx_to_slice = True
+                        else:
+                            source_sel = idx
+                    else:
+                        source_sel = np.s_[start_row : start_row + n_rows_to_read]
+
+                    # Now read the StructuredArray
+                    if n_rows == 0:
+                        nda = np.empty((0,), dtype=nda_dtype)
+                    else:
+                        if change_idx_to_slice or idx is None or use_h5idx:
+                            nda = h5f[name][source_sel]
+                        else:
+                            # it is faster to read the whole object and then do fancy indexing
+                            nda = h5f[name][...][source_sel]
+                        nda = np.lib.recfunctions.unstructured_to_structured(nda, dtype=nda_dtype, casting='safe')
+                        
+                    n_rows_read = n_rows_to_read
+                    metadata = json.loads(h5[field].attrs["metadata"])
+                    SA = StructuredArray(nda, metadata)
+
+                    # Do the explode into a table
+                    tbl_out = SA.explode()
+
+                    # Loop over the keys in this table and add to col_dict
+                    for key in list(tbl_out.keys()):
+                        col_dict[key] = tbl_out[key]
+                        if obj_buf is not None:
+                            # Resize the object buffer at this key corresponding to the data that we did read
+                            if obj_buf[key] is not None and n_rows_to_read > 0:
+                                buf_size = obj_buf_start + n_rows_to_read
+                                if len(obj_buf[key]) < buf_size:
+                                    obj_buf[key].resize(buf_size)
+
+                            obj_buf[key][obj_buf_start:buf_size] = tbl_out[key]  # Resize the obj_buf, assign the start_row, n_rows_read, etc.
+                        rows_read.append(n_rows_read)
+
+                    if obj_buf is not None and obj_buf_start + n_rows_read > len(obj_buf):
+                        obj_buf.resize(obj_buf_start + n_rows_read)
+                    
+                    continue
+
+                elif not field_mask[field]:
                     continue
 
                 fld_buf = None
@@ -478,7 +565,10 @@ class LH5Store:
                 selected_fields = []
                 for field in elements:
                     if field_mask[field]:
-                        selected_fields.append(field)
+                        if h5f[field].attrs["datatype"] == "StructuredArray":
+                            selected_fields.append(keys_from_above)
+                        else:
+                            selected_fields.append(field)
                 attrs["datatype"] = "table" + "{" + ",".join(selected_fields) + "}"
 
             # fields have been read out, now return a table
@@ -746,6 +836,98 @@ class LH5Store:
                 n_rows_read,
             )
 
+        if h5f[name].attrs["datatype"] == "StructuredArray":
+            raise NotImplementedError("It is probably just faster to access a bare StructuredArray with h5py.")
+            # if obj_buf is not None and not isinstance(obj_buf, Table):
+            #     msg = f"obj_buf for '{name}' not an LGDO Table"
+            #     raise ValueError(msg)
+            # # Get nda_dtype and get names
+            # # loop over the names to see if they're in field_mask, get a list of those that are. If that list is not empty, then read
+                
+            # if name in field_mask:
+            #     raise ValueError(f"{name} was supplied in field_mask but is a StructuredArray. Please don't do that. Field mask should contain the fields contained in the Structured Array.")
+            # # Start to think about reading in the StructuredArray
+            # # compute the number of rows to read
+            # # we culled idx above for start_row and n_rows, now we have to apply
+            # # the constraint of the length of the dataset
+            # ds_n_rows = h5f[name].shape[0]
+            # if idx is not None:
+            #     if len(idx[0]) > 0 and idx[0][-1] >= ds_n_rows:
+            #         log.warning(
+            #             "idx indexed past the end of the array in the file. Culling..."
+            #         )
+            #         n_rows_to_read = bisect_left(idx[0], ds_n_rows)
+            #         idx = (idx[0][:n_rows_to_read],)
+            #         if len(idx[0]) == 0:
+            #             log.warning("idx empty after culling.")
+            #     n_rows_to_read = len(idx[0])
+            # else:
+            #     n_rows_to_read = ds_n_rows - start_row
+            # if n_rows_to_read > n_rows:
+            #     n_rows_to_read = n_rows
+
+            # # if idx is passed, check if we can make it a slice instead (faster)
+            # change_idx_to_slice = False
+
+            # # prepare the selection for the read. Use idx if available
+            # if idx is not None:
+            #     # check if idx is empty and convert to slice instead
+            #     if len(idx[0]) == 0:
+            #         source_sel = np.s_[0:0]
+            #         change_idx_to_slice = True
+            #     # check if idx is contiguous and increasing
+            #     # if so, convert it to a slice instead (faster)
+            #     elif np.all(np.diff(idx[0]) == 1):
+            #         source_sel = np.s_[idx[0][0] : idx[0][-1] + 1]
+            #         change_idx_to_slice = True
+            #     else:
+            #         source_sel = idx
+            # else:
+            #     source_sel = np.s_[start_row : start_row + n_rows_to_read]
+
+            # # Now read the StructuredArray
+            # if n_rows == 0:
+            #     nda = np.empty((0,), dtype=nda_dtype)
+            # else:
+            #     if change_idx_to_slice or idx is None or use_h5idx:
+            #         nda = h5f[name][source_sel]
+            #     else:
+            #         # it is faster to read the whole object and then do fancy indexing
+            #         nda = h5f[name][...][source_sel]
+            #     nda = np.lib.recfunctions.unstructured_to_structured(nda, dtype=nda_dtype, casting='safe')
+                
+            # n_rows_read = n_rows_to_read
+            # # Do the explode into a table
+
+
+            # # Loop over the requested keys in this table
+            # if obj_buf is not None:
+            #     # Now do the loop
+            #         obj_buf[key] == "something"  # Resize the obj_buf, assign the start_row, n_rows_read, etc.
+
+            # if obj_buf is not None and obj_buf_start + n_rows_read > len(obj_buf):
+            #     obj_buf.resize(obj_buf_start + n_rows_read)
+
+            # if obj_buf is None:
+            #      # set (write) loc to end of tree
+            #     table.loc = n_rows_read
+            #     return exploded_table, n_rows_read
+            # else:
+            #     # We have read all fields into the object buffer. Run
+            #     # checks: All columns should be the same size. So update
+            #     # table's size as necessary, warn if any mismatches are found
+            #     obj_buf.resize(do_warn=True)
+            #     # set (write) loc to end of tree
+            #     obj_buf.loc = obj_buf_start + n_rows_read
+            #     # check attributes
+            #     if set(obj_buf.attrs.keys()) != set(attrs.keys()):
+            #         msg = (
+            #             f"attrs mismatch. obj_buf.attrs: "
+            #             f"{obj_buf.attrs}, h5f[{name}].attrs: {attrs}"
+            #         )
+            #         raise RuntimeError(msg)
+            #     return obj_buf, n_rows_read
+    
         # Array
         # FixedSizeArray
         # ArrayOfEqualSizedArrays
