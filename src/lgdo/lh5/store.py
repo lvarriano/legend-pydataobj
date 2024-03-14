@@ -503,6 +503,8 @@ class LH5Store:
 
                     # Loop over the keys in this table and add to col_dict
                     for key in list(tbl_out.keys()):
+                        if key not in fields_to_read:
+                            continue
                         col_dict[key] = tbl_out[key]
                         if obj_buf is not None:
                             # Resize the object buffer at this key corresponding to the data that we did read

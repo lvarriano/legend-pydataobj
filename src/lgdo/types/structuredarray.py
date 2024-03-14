@@ -25,15 +25,15 @@ from .table import Table
 
 log = logging.getLogger(__name__)
 
-class StructuredTable(Table):
+class StructuredArray(LGDO):
     """A special type based on numpy's structured arrays. Structured arrays are ndarrays whose datatype is a 
     composition of simpler datatypes organized as a sequence of named fields. However, note that the 
-    :class:`.StructuredTable` is written to disk as a 2-D np.ndarray of fixed type. Fields will have their dtype 
+    :class:`.StructuredArray` is written to disk as a 2-D np.ndarray of fixed type. Fields will have their dtype 
     promoted to the smallest required dtype. 
     
-    For this reason, it is discouraged to use a :class:`.StructuredTable` to
+    For this reason, it is discouraged to use a :class:`.StructuredArray` to
     hold a large amount of disparate data, such as one field that is a large array of `int8` and one field that is a 
-    `float64`. In this example, when the :class:`.StructuredTable` is written to disk, all data will be promoted to 
+    `float64`. In this example, when the :class:`.StructuredArray` is written to disk, all data will be promoted to 
     `float64`, which can take up a large amount of storage.
 
     https://numpy.org/doc/stable/user/basics.rec.html
@@ -52,27 +52,27 @@ class StructuredTable(Table):
         Parameters
         ----------
         nda
-            Instantiate the :class:`.StructuredTable` using the supplied numpy structured array. (Note: to instantiate 
-            using a normal `numpy.ndarray`, use `StructuredTable.from_nda()` to instantiate.)
+            Instantiate the :class:`.StructuredArray` using the supplied numpy structured array. (Note: to instantiate 
+            using a normal `numpy.ndarray`, use `StructuredArray.from_nda()` to instantiate.)
         attrs
             A set of user attributes to be carried along with this LGDO.
         """
 
         if not isinstance(nda, np.ndarray):
             msg = (
-                f"To instantiate with `StructuredTable()`, you must
+                f"To instantiate with `StructuredArray()`, you must
                 pass a numpy structured array. To instantiate with a normal numpy ndarray, use 
                 `StructedTable.from_nda()`. To instantiate with a `dict` of `LGDO` objects, use 
-                `StructuredTable.from_lgdo()`."
+                `StructuredArray.from_lgdo()`."
             )
             raise TypeError(msg)  
 
         if nda.dtype.names is None:
             msg = (
-                f"passed array looks like a normal numpy ndarray. To instantiate with `StructuredTable()`, you must
+                f"passed array looks like a normal numpy ndarray. To instantiate with `StructuredArray()`, you must
                 pass a numpy structured array. To instantiate with a normal numpy ndarray, use 
                 `StructedTable.from_nda()`. To instantiate with a `dict` of `LGDO` objects, use 
-                `StructuredTable.from_lgdo()`."
+                `StructuredArray.from_lgdo()`."
             )
             raise TypeError(msg)   
         
@@ -80,8 +80,6 @@ class StructuredTable(Table):
         for key in attrs.keys():
             self.attrs[key] |= attrs[key]
         self.attrs["nda_dtype"] |= self.nda.dtype
-
-
 
     @classmethod
     def from_lgdo(
@@ -93,7 +91,7 @@ class StructuredTable(Table):
         Parameters
         ----------
         obj_dict
-            Instantiate the StructuredTable using the supplied named array-like LGDO's.
+            Instantiate the StructuredArray using the supplied named array-like LGDO's.
             An error will be raised if all arrays do not have the same first dimension.
         attrs
             A set of user attributes to be carried along with this LGDO.
@@ -101,8 +99,8 @@ class StructuredTable(Table):
 
         if obj_dict is None or len(obj_dict) < 0:
             msg = (
-                f"You must pass a dictionary of LGDO objects to instantiate a :class:`.StructuredTable` 
-                with `StructuredTable.from_lgdo()`. To instantiate with a numpy structured array, use `StructuredTable()`. 
+                f"You must pass a dictionary of LGDO objects to instantiate a :class:`.StructuredArray` 
+                with `StructuredArray.from_lgdo()`. To instantiate with a numpy structured array, use `StructuredArray()`. 
                 To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`."
             )
             raise ValueError(msg)  
@@ -114,7 +112,7 @@ class StructuredTable(Table):
             raise ValueError(msg) 
         
         # check that inputs 1) exist and are of correct type and 2) have same first dimension (# rows).
-        # get the rest of the information needed to construct the StructuredTable.
+        # get the rest of the information needed to construct the StructuredArray.
         numrows = 0
         nda_dtype = []
         metadata = {}
@@ -134,7 +132,7 @@ class StructuredTable(Table):
                 )
                 if isinstance(obj, np.ndarray):
                     msg = msg + (
-                        f"To instantiate with a numpy structured array, use `StructuredTable()`. 
+                        f"To instantiate with a numpy structured array, use `StructuredArray()`. 
                         To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`."
                     )
                 raise TypeError(msg)
@@ -190,22 +188,22 @@ class StructuredTable(Table):
         attrs: dict[str,Any] = {},
         ) -> None:
         r"""
-        Creates a StructuredTable from an array and some additional information. Intended to be used when loading a
-        :class:`.StructuredTable` from disk.
+        Creates a StructuredArray from an array and some additional information. Intended to be used when loading a
+        :class:`.StructuredArray` from disk.
         """
 
         if not isinstance(nda, np.ndarray):
             msg = (
                 f"Got type {type(nda)} but need type `np.ndarray`. To instantiate with a numpy structured array, 
-                use `StructuredTable()`. To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`.
-                To instantiate with a `dict` of `LGDO` objects, use `StructuredTable.from_lgdo()`."
+                use `StructuredArray()`. To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`.
+                To instantiate with a `dict` of `LGDO` objects, use `StructuredArray.from_lgdo()`."
             )
             raise ValueError(msg)              
         
         if nda.dtype.names is not None:
             msg = (
                 f"passed array looks like a structured array. To instantiate with a numpy structured array, 
-                use `StructuredTable()`. To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`."
+                use `StructuredArray()`. To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`."
             )
             raise TypeError(msg)  
         
@@ -219,7 +217,7 @@ class StructuredTable(Table):
 
     # good
     def datatype_name(self) -> str:
-        return "StructuredTable"
+        return "StructuredArray"
 
     # good?
     def __len__(self) -> int:
