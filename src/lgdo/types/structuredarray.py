@@ -183,7 +183,7 @@ class StructuredArray(LGDO):
     @classmethod
     def from_nda(
         cls,
-        nda: np.ndarray,
+        nda: np.ndarray | None,
         nda_dtype: tuple[tuple[str,str,tuple[int,...]],...],
         attrs: dict[str,Any] = {},
         ) -> None:

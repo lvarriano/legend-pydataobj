@@ -440,6 +440,7 @@ class LH5Store:
                 if h5f[field].attrs["datatype"]  == "StructuredArray":
                     # Get nda_dtype and get names
                     nda_dtype = np.dtype(make_tuple(h5f[field].attrs["nda_dtype"]))
+                    metadata = json.loads(h5f[field].attrs["metadata"])
                     nda_names = list(nda_dtype.names)
                     if any(i in nda_names for i in elements):
                         raise ValueError("The fields in the StructuredArray cannot have the same name as a field already in the parent table. How did you write this?")
@@ -485,19 +486,17 @@ class LH5Store:
 
                     # Now read the StructuredArray
                     if n_rows == 0:
-                        nda = np.empty((0,), dtype=nda_dtype)
+                        nda = None   
                     else:
                         if change_idx_to_slice or idx is None or use_h5idx:
                             nda = h5f[name][source_sel]
                         else:
                             # it is faster to read the whole object and then do fancy indexing
                             nda = h5f[name][...][source_sel]
-                        nda = np.lib.recfunctions.unstructured_to_structured(nda, dtype=nda_dtype, casting='safe')
                         
                     n_rows_read = n_rows_to_read
-                    metadata = json.loads(h5[field].attrs["metadata"])
-                    SA = StructuredArray(nda, metadata)
-
+                    SA = StructuredArray(nda=None, nda_dtype=nda_dtype, attrs=metadata)
+                    
                     # Do the explode into a table
                     tbl_out = SA.explode()
 
