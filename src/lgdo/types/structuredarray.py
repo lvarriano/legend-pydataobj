@@ -11,6 +11,7 @@ from warnings import warn
 import awkward as ak
 import numexpr as ne
 import numpy as np
+from numpy.lib import recfunctions
 import pandas as pd
 from pandas.io.formats import format as fmt
 import json
@@ -18,9 +19,9 @@ import json
 from .array import Array
 from .arrayofequalsizedarrays import ArrayOfEqualSizedArrays
 from .lgdo import LGDO
-from .scalar import Scalar
-from .struct import Struct
-from .vectorofvectors import VectorOfVectors
+# from .scalar import Scalar
+# from .struct import Struct
+# from .vectorofvectors import VectorOfVectors
 from .table import Table
 
 log = logging.getLogger(__name__)
@@ -186,7 +187,8 @@ class StructuredArray(LGDO):
         nda: np.ndarray | None,
         nda_dtype: tuple[tuple[str,str,tuple[int,...]],...],
         attrs: dict[str,Any] = {},
-        ) -> None:
+        casting: str = 'safe',
+        ):
         r"""
         Creates a StructuredArray from an array and some additional information. Intended to be used when loading a
         :class:`.StructuredArray` from disk.
@@ -206,209 +208,218 @@ class StructuredArray(LGDO):
                 use `StructuredArray()`. To instantiate with a normal numpy ndarray, use `StructedTable.from_nda()`."
             )
             raise TypeError(msg)  
-        
-        # I'm going to let numpy handle checking that the passed data and nda_dtype match appropriately...
-        nda_sa = np.lib.recfunctions.unstructured_to_structured(arr=nda, dtype=nda_dtype, casting='safe')
+    
+        if nda is None:
+            # make an empty (len == 0) structured array of the correct dtype
+            # start with bool as lowest size so it can be promoted to other dtypes
+            nda_sa = recfunctions.unstructured_to_structured(arr=np.empty(shape=(0,len(nda_dtype)), dtype=bool), 
+                                                             dtype=nda_dtype, casting=casting)
+        else:
+            # I'm going to let numpy handle checking that the passed data and nda_dtype match appropriately...
+            nda_sa = recfunctions.unstructured_to_structured(arr=nda, dtype=nda_dtype, casting=casting)
 
+        return cls(nda=nda_sa, attrs=attrs)
 
-
-
-        pass
-
-    # good
+    # done
     def datatype_name(self) -> str:
         return "StructuredArray"
 
-    # good?
+    # done
     def __len__(self) -> int:
         """Provides ``__len__`` for this array-like class."""
         return self.nda.shape[0] # changed from self.shape[0]
 
+    def explode(
+            self, 
+            table: Table = None,
+            ) -> None | Table:
+        r"""Explodes the :class:`.StructuredArray` into a :class:`.Table`. If a :class:`.Table` is provided, 
+        returns `None` and exploded fields are added to the provided :class:`.Table`. If no :class:`.Table` is 
+        provided, a new :class:`.Table` is created and the exploded fields are added to it and the new 
+        :class:`.Table` is returned. """
+
+        pass
 
 
 
 
+    # def resize(self, new_size: int | None = None, do_warn: bool = False) -> None:
+    #     # if new_size = None, use the size from the first field
+    #     for field, obj in self.items():
+    #         if new_size is None:
+    #             new_size = len(obj)
+    #         elif len(obj) != new_size:
+    #             if do_warn:
+    #                 log.warning(
+    #                     f"warning: resizing field {field}"
+    #                     f"with size {len(obj)} != {new_size}"
+    #                 )
+    #             if isinstance(obj, Table):
+    #                 obj.resize(new_size)
+    #             else:
+    #                 obj.resize(new_size)
+    #     self.size = new_size
 
+    # def push_row(self) -> None:
+    #     self.loc += 1
 
+    # def is_full(self) -> bool:
+    #     return self.loc >= self.size
 
+    # def clear(self) -> None:
+    #     self.loc = 0
 
-    def resize(self, new_size: int | None = None, do_warn: bool = False) -> None:
-        # if new_size = None, use the size from the first field
-        for field, obj in self.items():
-            if new_size is None:
-                new_size = len(obj)
-            elif len(obj) != new_size:
-                if do_warn:
-                    log.warning(
-                        f"warning: resizing field {field}"
-                        f"with size {len(obj)} != {new_size}"
-                    )
-                if isinstance(obj, Table):
-                    obj.resize(new_size)
-                else:
-                    obj.resize(new_size)
-        self.size = new_size
+    # def add_field(self, name: str, obj: LGDO, use_obj_size: bool = False) -> None:
+    #     """Add a field (column) to the table.
 
-    def push_row(self) -> None:
-        self.loc += 1
+    #     Use the name "field" here to match the terminology used in
+    #     :class:`.Struct`.
 
-    def is_full(self) -> bool:
-        return self.loc >= self.size
+    #     Parameters
+    #     ----------
+    #     name
+    #         the name for the field in the table.
+    #     obj
+    #         the object to be added to the table.
+    #     use_obj_size
+    #         if ``True``, resize the table to match the length of `obj`.
+    #     """
+    #     if not hasattr(obj, "__len__"):
+    #         msg = "cannot add field of type"
+    #         raise TypeError(msg, type(obj).__name__)
 
-    def clear(self) -> None:
-        self.loc = 0
+    #     super().add_field(name, obj)
 
-    def add_field(self, name: str, obj: LGDO, use_obj_size: bool = False) -> None:
-        """Add a field (column) to the table.
+    #     if self.size is None:
+    #         self.size = len(obj)
 
-        Use the name "field" here to match the terminology used in
-        :class:`.Struct`.
+    #     # check / update sizes
+    #     if self.size != len(obj):
+    #         warn(
+    #             f"warning: you are trying to add {name} with length {len(obj)} to a table with size {self.size} and data might be lost. \n"
+    #             f"With 'use_obj_size' set to:\n"
+    #             f"  - True, the table will be resized to length {len(obj)} by padding/clipping its columns.\n"
+    #             f"  - False (default), object {name} will be padded/clipped to length {self.size}.",
+    #             UserWarning,
+    #             stacklevel=2,
+    #         )
+    #         new_size = len(obj) if use_obj_size else self.size
+    #         self.resize(new_size=new_size)
 
-        Parameters
-        ----------
-        name
-            the name for the field in the table.
-        obj
-            the object to be added to the table.
-        use_obj_size
-            if ``True``, resize the table to match the length of `obj`.
-        """
-        if not hasattr(obj, "__len__"):
-            msg = "cannot add field of type"
-            raise TypeError(msg, type(obj).__name__)
+    # def add_column(self, name: str, obj: LGDO, use_obj_size: bool = False) -> None:
+    #     """Alias for :meth:`.add_field` using table terminology 'column'."""
+    #     self.add_field(name, obj, use_obj_size=use_obj_size)
 
-        super().add_field(name, obj)
+    # def remove_column(self, name: str, delete: bool = False) -> None:
+    #     """Alias for :meth:`.remove_field` using table terminology 'column'."""
+    #     super().remove_field(name, delete)
 
-        if self.size is None:
-            self.size = len(obj)
+    # def eval(
+    #     self,
+    #     expr: str,
+    #     parameters: Mapping[str, str] | None = None,
+    # ) -> LGDO:
+    #     """Apply column operations to the table and return a new LGDO.
 
-        # check / update sizes
-        if self.size != len(obj):
-            warn(
-                f"warning: you are trying to add {name} with length {len(obj)} to a table with size {self.size} and data might be lost. \n"
-                f"With 'use_obj_size' set to:\n"
-                f"  - True, the table will be resized to length {len(obj)} by padding/clipping its columns.\n"
-                f"  - False (default), object {name} will be padded/clipped to length {self.size}.",
-                UserWarning,
-                stacklevel=2,
-            )
-            new_size = len(obj) if use_obj_size else self.size
-            self.resize(new_size=new_size)
+    #     Internally uses :func:`numexpr.evaluate` if dealing with columns
+    #     representable as NumPy arrays or :func:`eval` if
+    #     :class:`.VectorOfVectors` are involved. In the latter case, the VoV
+    #     columns are viewed as :class:`ak.Array` and the respective routines are
+    #     therefore available.
 
-    def add_column(self, name: str, obj: LGDO, use_obj_size: bool = False) -> None:
-        """Alias for :meth:`.add_field` using table terminology 'column'."""
-        self.add_field(name, obj, use_obj_size=use_obj_size)
+    #     Parameters
+    #     ----------
+    #     expr
+    #         if the expression only involves non-:class:`.VectorOfVectors`
+    #         columns, the syntax is the one supported by
+    #         :func:`numexpr.evaluate` (see `here
+    #         <https://numexpr.readthedocs.io/projects/NumExpr3/en/latest/index.html>`_
+    #         for documentation). Note: because of internal limitations,
+    #         reduction operations must appear the last in the stack. If at least
+    #         one considered column is a :class:`.VectorOfVectors`, plain
+    #         :func:`eval` is used and :class:`ak.Array` transforms can be used
+    #         through the ``ak.`` prefix. (NumPy functions are analogously
+    #         accessible through ``np.``). See also examples below.
+    #     parameters
+    #         a dictionary of function parameters. Passed to
+    #         :func:`numexpr.evaluate`` as `local_dict` argument or to
+    #         :func:`eval` as `locals` argument.
 
-    def remove_column(self, name: str, delete: bool = False) -> None:
-        """Alias for :meth:`.remove_field` using table terminology 'column'."""
-        super().remove_field(name, delete)
+    #     Examples
+    #     --------
+    #     >>> import lgdo
+    #     >>> tbl = lgdo.Table(
+    #     ...   col_dict={
+    #     ...     "a": lgdo.Array([1, 2, 3]),
+    #     ...     "b": lgdo.VectorOfVectors([[5], [6, 7], [8, 9, 0]]),
+    #     ...   }
+    #     ... )
+    #     >>> print(tbl.eval("a + b"))
+    #     [[6],
+    #      [8 9],
+    #      [11 12  3],
+    #     ]
+    #     >>> print(tbl.eval("np.sum(a) + ak.sum(b)"))
+    #     41
+    #     """
+    #     if parameters is None:
+    #         parameters = {}
 
-    def eval(
-        self,
-        expr: str,
-        parameters: Mapping[str, str] | None = None,
-    ) -> LGDO:
-        """Apply column operations to the table and return a new LGDO.
+    #     # get the valid python variable names in the expression
+    #     c = compile(expr, "0vbb is real!", "eval")
 
-        Internally uses :func:`numexpr.evaluate` if dealing with columns
-        representable as NumPy arrays or :func:`eval` if
-        :class:`.VectorOfVectors` are involved. In the latter case, the VoV
-        columns are viewed as :class:`ak.Array` and the respective routines are
-        therefore available.
+    #     # make a dictionary of low-level objects (numpy or awkward)
+    #     # for later computation
+    #     self_unwrap = {}
+    #     has_ak = False
+    #     for obj in c.co_names:
+    #         if obj in self.keys():
+    #             if isinstance(self[obj], VectorOfVectors):
+    #                 self_unwrap[obj] = self[obj].view_as("ak", with_units=False)
+    #                 has_ak = True
+    #             else:
+    #                 self_unwrap[obj] = self[obj].view_as("np", with_units=False)
 
-        Parameters
-        ----------
-        expr
-            if the expression only involves non-:class:`.VectorOfVectors`
-            columns, the syntax is the one supported by
-            :func:`numexpr.evaluate` (see `here
-            <https://numexpr.readthedocs.io/projects/NumExpr3/en/latest/index.html>`_
-            for documentation). Note: because of internal limitations,
-            reduction operations must appear the last in the stack. If at least
-            one considered column is a :class:`.VectorOfVectors`, plain
-            :func:`eval` is used and :class:`ak.Array` transforms can be used
-            through the ``ak.`` prefix. (NumPy functions are analogously
-            accessible through ``np.``). See also examples below.
-        parameters
-            a dictionary of function parameters. Passed to
-            :func:`numexpr.evaluate`` as `local_dict` argument or to
-            :func:`eval` as `locals` argument.
+    #     # use numexpr if we are only dealing with numpy data types
+    #     if not has_ak:
+    #         out_data = ne.evaluate(
+    #             expr,
+    #             local_dict=(self_unwrap | parameters),
+    #         )
 
-        Examples
-        --------
-        >>> import lgdo
-        >>> tbl = lgdo.Table(
-        ...   col_dict={
-        ...     "a": lgdo.Array([1, 2, 3]),
-        ...     "b": lgdo.VectorOfVectors([[5], [6, 7], [8, 9, 0]]),
-        ...   }
-        ... )
-        >>> print(tbl.eval("a + b"))
-        [[6],
-         [8 9],
-         [11 12  3],
-        ]
-        >>> print(tbl.eval("np.sum(a) + ak.sum(b)"))
-        41
-        """
-        if parameters is None:
-            parameters = {}
+    #         # need to convert back to LGDO
+    #         # np.evaluate should always return a numpy thing?
+    #         if out_data.ndim == 0:
+    #             return Scalar(out_data.item())
+    #         if out_data.ndim == 1:
+    #             return Array(out_data)
+    #         if out_data.ndim == 2:
+    #             return ArrayOfEqualSizedArrays(nda=out_data)
 
-        # get the valid python variable names in the expression
-        c = compile(expr, "0vbb is real!", "eval")
+    #         msg = (
+    #             f"evaluation resulted in {out_data.ndim}-dimensional data, "
+    #             "I don't know which LGDO this corresponds to"
+    #         )
+    #         raise RuntimeError(msg)
 
-        # make a dictionary of low-level objects (numpy or awkward)
-        # for later computation
-        self_unwrap = {}
-        has_ak = False
-        for obj in c.co_names:
-            if obj in self.keys():
-                if isinstance(self[obj], VectorOfVectors):
-                    self_unwrap[obj] = self[obj].view_as("ak", with_units=False)
-                    has_ak = True
-                else:
-                    self_unwrap[obj] = self[obj].view_as("np", with_units=False)
+    #     # resort to good ol' eval()
+    #     globs = {"ak": ak, "np": np}
+    #     out_data = eval(expr, globs, (self_unwrap | parameters))  # noqa: PGH001
 
-        # use numexpr if we are only dealing with numpy data types
-        if not has_ak:
-            out_data = ne.evaluate(
-                expr,
-                local_dict=(self_unwrap | parameters),
-            )
+    #     # need to convert back to LGDO
+    #     if isinstance(out_data, ak.Array):
+    #         if out_data.ndim == 1:
+    #             return Array(out_data.to_numpy())
+    #         return VectorOfVectors(out_data)
 
-            # need to convert back to LGDO
-            # np.evaluate should always return a numpy thing?
-            if out_data.ndim == 0:
-                return Scalar(out_data.item())
-            if out_data.ndim == 1:
-                return Array(out_data)
-            if out_data.ndim == 2:
-                return ArrayOfEqualSizedArrays(nda=out_data)
+    #     if np.isscalar(out_data):
+    #         return Scalar(out_data)
 
-            msg = (
-                f"evaluation resulted in {out_data.ndim}-dimensional data, "
-                "I don't know which LGDO this corresponds to"
-            )
-            raise RuntimeError(msg)
-
-        # resort to good ol' eval()
-        globs = {"ak": ak, "np": np}
-        out_data = eval(expr, globs, (self_unwrap | parameters))  # noqa: PGH001
-
-        # need to convert back to LGDO
-        if isinstance(out_data, ak.Array):
-            if out_data.ndim == 1:
-                return Array(out_data.to_numpy())
-            return VectorOfVectors(out_data)
-
-        if np.isscalar(out_data):
-            return Scalar(out_data)
-
-        msg = (
-            f"evaluation resulted in a {type(out_data)} object, "
-            "I don't know which LGDO this corresponds to"
-        )
-        raise RuntimeError(msg)
+    #     msg = (
+    #         f"evaluation resulted in a {type(out_data)} object, "
+    #         "I don't know which LGDO this corresponds to"
+    #     )
+    #     raise RuntimeError(msg)
 
     def __str__(self):
         opts = fmt.get_dataframe_repr_params()

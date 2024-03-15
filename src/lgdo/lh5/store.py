@@ -484,7 +484,7 @@ class LH5Store:
                     else:
                         source_sel = np.s_[start_row : start_row + n_rows_to_read]
 
-                    # Now read the StructuredArray
+                    # Now read the StructuredArray from disk
                     if n_rows == 0:
                         nda = None   
                     else:
@@ -495,7 +495,7 @@ class LH5Store:
                             nda = h5f[name][...][source_sel]
                         
                     n_rows_read = n_rows_to_read
-                    SA = StructuredArray(nda=None, nda_dtype=nda_dtype, attrs=metadata)
+                    SA = StructuredArray(nda=nda, nda_dtype=nda_dtype, attrs=metadata)
                     
                     # Do the explode into a table
                     tbl_out = SA.explode()
