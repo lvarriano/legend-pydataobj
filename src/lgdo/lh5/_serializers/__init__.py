@@ -15,6 +15,7 @@ from .read.composite import (
 from .read.encoded import (
     _h5_read_array_of_encoded_equalsized_arrays,
     _h5_read_vector_of_encoded_vectors,
+    _h5_read_encoded_array,
 )
 from .read.scalar import _h5_read_scalar
 from .read.vector_of_vectors import _h5_read_vector_of_vectors
